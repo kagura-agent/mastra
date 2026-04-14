@@ -19,6 +19,8 @@ export interface WorkOSUser extends EEUser {
   organizationId?: string;
   /** Organization memberships with roles */
   memberships?: OrganizationMembership[];
+  /** Pre-resolved organization membership ID (if available) */
+  organizationMembershipId?: string;
 }
 
 /**
@@ -92,6 +94,16 @@ export interface MastraAuthWorkosOptions {
   session?: WorkOSSessionConfig;
   /** Custom provider name (default: 'workos') */
   name?: string;
+  /**
+   * Whether to fetch organization memberships during authentication.
+   *
+   * Memberships are required for FGA (Fine-Grained Authorization) checks.
+   * When FGA is not configured, set this to `false` to skip the extra
+   * network call to `listOrganizationMemberships` on every authenticated request.
+   *
+   * Defaults to `false`. Set to `true` when using `MastraFGAWorkos`.
+   */
+  fetchMemberships?: boolean;
 }
 
 // ============================================================================

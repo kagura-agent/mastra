@@ -8,6 +8,12 @@ import type { Mastra } from '../mastra';
 import type { RequestContext } from '../request-context';
 import type { MastraAuthProvider } from './auth';
 
+type RouteFGAConfig = {
+  resourceType: string;
+  resourceIdParam?: string;
+  permission?: string;
+};
+
 export type Methods = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'ALL';
 
 export type ApiRoute =
@@ -18,6 +24,8 @@ export type ApiRoute =
       middleware?: MiddlewareHandler | MiddlewareHandler[];
       openapi?: DescribeRouteOptions;
       requiresAuth?: boolean;
+      requiresPermission?: string;
+      fga?: RouteFGAConfig;
     }
   | {
       path: string;
@@ -26,6 +34,8 @@ export type ApiRoute =
       middleware?: MiddlewareHandler | MiddlewareHandler[];
       openapi?: DescribeRouteOptions;
       requiresAuth?: boolean;
+      requiresPermission?: string;
+      fga?: RouteFGAConfig;
     };
 
 export type Middleware = MiddlewareHandler | { path: string; handler: MiddlewareHandler };

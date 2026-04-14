@@ -32,6 +32,20 @@ function createMockMastra(fga?: any) {
 describe('MCP Server FGA checks', () => {
   let mcpServer: MCPServer;
 
+  const createRequestContext = (user?: { id: string }) => {
+    const values = new Map<string, unknown>();
+    if (user) {
+      values.set('user', user);
+    }
+
+    return {
+      get: (key: string) => values.get(key),
+      set: (key: string, value: unknown) => {
+        values.set(key, value);
+      },
+    };
+  };
+
   const testTool = createTool({
     id: 'test-tool',
     description: 'A test tool',
@@ -105,5 +119,74 @@ describe('MCP Server FGA checks', () => {
 
     const fga = mcpServer.mastra?.getServer?.()?.fga;
     expect(fga).toBeUndefined();
+  });
+
+  it('should enforce FGA in executeTool when requestContext has a user', async () => {
+    const execute = vi.fn().mockResolvedValue({ output: 'success' });
+    mcpServer = new MCPServer({
+      name: 'test-server',
+      version: '1.0.0',
+      tools: {
+        'test-tool': createTool({
+          id: 'test-tool',
+          description: 'A test tool',
+          inputSchema: z.object({ input: z.string() }),
+          execute,
+        }),
+      },
+    });
+
+    const mockFGAProvider = {
+      check: vi.fn().mockResolvedValue(false),
+      require: vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('denied'), { name: 'FGADeniedError', status: 403 })),
+      filterAccessible: vi.fn(),
+    };
+
+    const mockMastra = createMockMastra(mockFGAProvider);
+    mcpServer.__registerMastra(mockMastra as any);
+
+    const requestContext = createRequestContext({ id: 'user-1' });
+
+    await expect(
+      mcpServer.executeTool('test-tool', { input: 'hello' }, { requestContext }),
+    ).rejects.toThrow('denied');
+    expect(execute).not.toHaveBeenCalled();
+    expect(mockFGAProvider.require).toHaveBeenCalledWith(
+      { id: 'user-1' },
+      { resource: { type: 'tool', id: 'test-tool' }, permission: 'tools:execute' },
+    );
+  });
+
+  it('should skip FGA in executeTool when no user is present', async () => {
+    const execute = vi.fn().mockResolvedValue({ output: 'success' });
+    mcpServer = new MCPServer({
+      name: 'test-server',
+      version: '1.0.0',
+      tools: {
+        'test-tool': createTool({
+          id: 'test-tool',
+          description: 'A test tool',
+          inputSchema: z.object({ input: z.string() }),
+          execute,
+        }),
+      },
+    });
+
+    const mockFGAProvider = {
+      check: vi.fn(),
+      require: vi.fn(),
+      filterAccessible: vi.fn(),
+    };
+
+    const mockMastra = createMockMastra(mockFGAProvider);
+    mcpServer.__registerMastra(mockMastra as any);
+
+    await expect(
+      mcpServer.executeTool('test-tool', { input: 'hello' }, { requestContext: createRequestContext() as any }),
+    ).resolves.toEqual({ output: 'success' });
+    expect(mockFGAProvider.require).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalled();
   });
 });

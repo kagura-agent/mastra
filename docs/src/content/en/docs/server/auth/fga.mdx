@@ -26,7 +26,10 @@ import { MastraAuthWorkos, MastraFGAWorkos } from '@mastra/auth-workos';
 
 const mastra = new Mastra({
   server: {
-    auth: new MastraAuthWorkos({ /* ... */ }),
+    auth: new MastraAuthWorkos({
+      /* ... */
+      fetchMemberships: true,
+    }),
     fga: new MastraFGAWorkos({
       resourceMapping: {
         agent: { fgaResourceType: 'team', deriveId: (ctx) => ctx.user.teamId },
@@ -43,6 +46,8 @@ const mastra = new Mastra({
   },
 });
 ```
+
+When using `MastraFGAWorkos`, set `fetchMemberships: true` on `MastraAuthWorkos`. WorkOS FGA checks need the user's organization memberships to resolve the correct membership ID for authorization.
 
 ### Resource mapping
 

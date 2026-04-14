@@ -518,6 +518,8 @@ export class MCPServer extends MCPServerBase {
           },
         };
 
+        await this.enforceToolExecutionFGA(request.params.name, proxiedContext);
+
         const result = await tool.execute(validation?.value ?? request.params.arguments ?? {}, mcpOptions);
 
         const duration = Date.now() - startTime;
@@ -1947,6 +1949,22 @@ export class MCPServer extends MCPServerBase {
     };
   }
 
+  private async enforceToolExecutionFGA(toolId: string, requestContext?: RequestContext): Promise<void> {
+    const fgaProvider = this.mastra?.getServer?.()?.fga;
+    const user = requestContext?.get('user');
+    if (!fgaProvider || !user) {
+      return;
+    }
+
+    const { checkFGA } = await import('@mastra/core/auth/ee');
+    await checkFGA({
+      fgaProvider,
+      user,
+      resource: { type: 'tool', id: toolId },
+      permission: 'tools:execute',
+    });
+  }
+
   /**
    * Executes a specific tool provided by this MCP server.
    *
@@ -1972,7 +1990,7 @@ export class MCPServer extends MCPServerBase {
   public async executeTool(
     toolId: string,
     args: any,
-    executionContext?: { messages?: any[]; toolCallId?: string },
+    executionContext?: { messages?: any[]; toolCallId?: string; requestContext?: RequestContext },
   ): Promise<any> {
     const tool = this.convertedTools[toolId];
     let validatedArgs = args;
@@ -2051,7 +2069,9 @@ export class MCPServer extends MCPServerBase {
       const finalExecutionContext = {
         messages: executionContext?.messages || [],
         toolCallId: executionContext?.toolCallId || randomUUID(),
+        requestContext: executionContext?.requestContext,
       };
+      await this.enforceToolExecutionFGA(toolId, finalExecutionContext.requestContext);
       const result = await tool.execute(validatedArgs, finalExecutionContext);
       this.logger.info('Tool executed successfully', { tool: toolId });
       return result;

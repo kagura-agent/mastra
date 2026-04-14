@@ -22,7 +22,7 @@ import type {
 import { FGADeniedError } from '@mastra/core/auth/ee';
 import { WorkOS } from '@workos-inc/node';
 
-import type { MastraFGAWorkosOptions, FGAResourceMappingEntry } from './types';
+import type { MastraFGAWorkosOptions, FGAResourceMappingEntry, WorkOSUser } from './types';
 
 /**
  * WorkOS FGA provider using the new Authorization API.
@@ -62,7 +62,7 @@ import type { MastraFGAWorkosOptions, FGAResourceMappingEntry } from './types';
  * });
  * ```
  */
-export class MastraFGAWorkos implements IFGAManager {
+export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
   private workos: WorkOS;
   private organizationId?: string;
   private resourceMapping: Record<string, FGAResourceMappingEntry>;
@@ -95,7 +95,7 @@ export class MastraFGAWorkos implements IFGAManager {
    * Resolves the user's organization membership ID, maps the permission
    * via `permissionMapping`, and delegates to `workos.authorization.check()`.
    */
-  async check(user: any, params: FGACheckParams): Promise<boolean> {
+  async check(user: WorkOSUser, params: FGACheckParams): Promise<boolean> {
     const membershipId = this.resolveOrganizationMembershipId(user);
     if (!membershipId) return false;
 
@@ -126,7 +126,7 @@ export class MastraFGAWorkos implements IFGAManager {
   /**
    * Require that a user has permission, throwing FGADeniedError if not.
    */
-  async require(user: any, params: FGACheckParams): Promise<void> {
+  async require(user: WorkOSUser, params: FGACheckParams): Promise<void> {
     const authorized = await this.check(user, params);
     if (!authorized) {
       throw new FGADeniedError(user, params.resource, params.permission);
@@ -136,10 +136,21 @@ export class MastraFGAWorkos implements IFGAManager {
   /**
    * Filter resources to only those the user has permission to access.
    *
-   * Uses batch checking or listing to determine which resources are accessible.
+   * Issues one `check()` call per resource in parallel. This is an N+1 pattern
+   * because the WorkOS Authorization SDK (v8.x) does not expose a batch-check
+   * endpoint — `authorization.check()` accepts a single check object and there
+   * is no `checkBatch()` method.
+   *
+   * `listResourcesForMembership()` exists in the SDK but requires a
+   * `parentResourceId` or `parentResourceExternalId`, making it unsuitable as a
+   * general-purpose batch alternative here.
+   *
+   * TODO: When WorkOS adds a batch authorization-check API, replace the
+   * `Promise.all` below with a single batched call to reduce latency and
+   * API quota consumption proportionally.
    */
   async filterAccessible<T extends { id: string }>(
-    user: any,
+    user: WorkOSUser,
     resources: T[],
     resourceType: string,
     permission: string,
@@ -149,7 +160,7 @@ export class MastraFGAWorkos implements IFGAManager {
     const membershipId = this.resolveOrganizationMembershipId(user);
     if (!membershipId) return [];
 
-    // Check each resource individually (could be optimized with batch API)
+    // N individual checks run concurrently — see method JSDoc for context.
     const checks = await Promise.all(
       resources.map(async resource => {
         const authorized = await this.check(user, {
@@ -311,19 +322,30 @@ export class MastraFGAWorkos implements IFGAManager {
    * Resolve the organization membership ID from a user object.
    * Looks for organizationMembershipId, then finds membership matching
    * configured organizationId, then falls back to first membership.
+   *
+   * Returns undefined if no membership can be resolved, which causes
+   * authorization checks to deny access. Enable `fetchMemberships: true`
+   * on MastraAuthWorkos to populate the memberships field.
    */
-  private resolveOrganizationMembershipId(user: any): string | undefined {
+  private resolveOrganizationMembershipId(user: WorkOSUser): string | undefined {
     if (user?.organizationMembershipId) return user.organizationMembershipId;
-    if (!user?.memberships?.length) return undefined;
+    if (!user?.memberships?.length) {
+      console.warn(
+        '[MastraFGAWorkos] Cannot resolve organization membership for user %s. ' +
+          'Ensure fetchMemberships is enabled on MastraAuthWorkos when using FGA.',
+        user?.id ?? 'unknown',
+      );
+      return undefined;
+    }
 
     // If organizationId is configured, find the matching membership
     if (this.organizationId) {
-      const match = user.memberships.find((m: any) => m.organizationId === this.organizationId);
+      const match = user.memberships.find(m => m.organizationId === this.organizationId);
       if (match) return match.id;
     }
 
     // Fall back to first membership
-    return user.memberships[0].id;
+    return user.memberships[0]!.id;
   }
 
   /**
@@ -338,7 +360,7 @@ export class MastraFGAWorkos implements IFGAManager {
    * Resolve the FGA resource ID using resourceMapping's deriveId function.
    * Falls back to the original resource ID if no mapping is found.
    */
-  private resolveResourceId(user: any, resourceType: string, resourceId: string): string | undefined {
+  private resolveResourceId(user: WorkOSUser, resourceType: string, resourceId: string): string | undefined {
     const mapping = this.resourceMapping[resourceType];
     if (mapping?.deriveId) {
       return mapping.deriveId({ user });

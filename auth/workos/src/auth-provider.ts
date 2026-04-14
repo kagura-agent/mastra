@@ -61,6 +61,7 @@ export class MastraAuthWorkos
   protected ssoConfig: MastraAuthWorkosOptions['sso'];
   protected authService: AuthService<Request, Response>;
   protected config: AuthKitConfig;
+  protected fetchMemberships: boolean;
 
   constructor(options?: MastraAuthWorkosOptions) {
     super({ name: options?.name ?? 'workos' });
@@ -95,6 +96,7 @@ export class MastraAuthWorkos
     this.clientId = clientId;
     this.redirectUri = redirectUri;
     this.ssoConfig = options?.sso;
+    this.fetchMemberships = options?.fetchMemberships ?? false;
 
     // Create WorkOS client
     this.workos = new WorkOS(apiKey, { clientId });
@@ -148,15 +150,19 @@ export class MastraAuthWorkos
       const { auth } = await this.authService.withAuth(rawRequest);
 
       if (auth.user) {
-        // Fetch memberships for session-authenticated users (needed for FGA)
+        // Fetch memberships only when FGA is configured (fetchMemberships: true).
+        // Skipping this call avoids an extra network round-trip on every
+        // authenticated request when FGA is not in use.
         let memberships: OrganizationMembership[] | undefined;
-        try {
-          const membershipResult = await this.workos.userManagement.listOrganizationMemberships({
-            userId: auth.user.id,
-          });
-          memberships = membershipResult.data;
-        } catch {
-          // Ignore membership fetch errors — FGA will gracefully degrade
+        if (this.fetchMemberships) {
+          try {
+            const membershipResult = await this.workos.userManagement.listOrganizationMemberships({
+              userId: auth.user.id,
+            });
+            memberships = membershipResult.data;
+          } catch {
+            // Ignore membership fetch errors — FGA will gracefully degrade
+          }
         }
 
         return {
@@ -174,15 +180,24 @@ export class MastraAuthWorkos
 
         if (payload?.sub) {
           const user = await this.workos.userManagement.getUser(payload.sub);
-          const memberships = await this.workos.userManagement.listOrganizationMemberships({
-            userId: user.id,
-          });
+
+          // Fetch memberships only when FGA is configured (fetchMemberships: true).
+          if (this.fetchMemberships) {
+            const memberships = await this.workos.userManagement.listOrganizationMemberships({
+              userId: user.id,
+            });
+
+            return {
+              ...mapWorkOSUserToEEUser(user),
+              workosId: user.id,
+              organizationId: memberships.data[0]?.organizationId,
+              memberships: memberships.data,
+            };
+          }
 
           return {
             ...mapWorkOSUserToEEUser(user),
             workosId: user.id,
-            organizationId: memberships.data[0]?.organizationId,
-            memberships: memberships.data,
           };
         }
       }
@@ -215,9 +230,11 @@ export class MastraAuthWorkos
         return null;
       }
 
-      // Get organizationId from JWT claims, or fall back to fetching from memberships
+      // Get organizationId from JWT claims, or fall back to fetching from memberships.
+      // The fallback fetch is skipped when fetchMemberships is false (FGA not configured)
+      // to avoid an extra network call on every authenticated request.
       let organizationId = auth.organizationId;
-      if (!organizationId) {
+      if (!organizationId && this.fetchMemberships) {
         try {
           const memberships = await this.workos.userManagement.listOrganizationMemberships({
             userId: auth.user.id,

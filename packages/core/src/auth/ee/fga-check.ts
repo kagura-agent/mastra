@@ -36,6 +36,7 @@ export class FGADeniedError extends Error {
   public readonly user: any;
   public readonly resource: { type: string; id: string };
   public readonly permission: string;
+  public readonly status: number;
 
   constructor(user: any, resource: { type: string; id: string }, permission: string) {
     const userId = user?.id || user?.workosId || 'unknown';
@@ -44,5 +45,6 @@ export class FGADeniedError extends Error {
     this.user = user;
     this.resource = resource;
     this.permission = permission;
+    this.status = 403;
   }
 }
