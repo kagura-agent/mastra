@@ -143,6 +143,68 @@ export interface MastraRBACWorkosOptions {
 }
 
 // ============================================================================
+// FGA Types
+// ============================================================================
+
+/**
+ * Configuration for mapping Mastra resource types to FGA resource types.
+ *
+ * @example
+ * ```typescript
+ * {
+ *   agents: { fgaResourceType: 'team', deriveId: (ctx) => ctx.user.teamId },
+ *   workflows: { fgaResourceType: 'team', deriveId: (ctx) => ctx.user.teamId },
+ *   memory: { fgaResourceType: 'user', deriveId: (ctx) => ctx.user.userId },
+ * }
+ * ```
+ */
+export interface FGAResourceMappingEntry {
+  /** The FGA resource type slug in WorkOS */
+  fgaResourceType: string;
+  /** Derive the FGA resource ID from user context */
+  deriveId?: (ctx: { user: any }) => string;
+}
+
+/**
+ * Options for MastraFGAWorkos provider.
+ *
+ * @example
+ * ```typescript
+ * new MastraFGAWorkos({
+ *   resourceMapping: {
+ *     agents: { fgaResourceType: 'team', deriveId: (ctx) => ctx.user.teamId },
+ *   },
+ *   permissionMapping: {
+ *     'agents:execute': 'manage-workflows',
+ *   },
+ * });
+ * ```
+ */
+export interface MastraFGAWorkosOptions {
+  /** WorkOS API key (defaults to WORKOS_API_KEY env var) */
+  apiKey?: string;
+  /** WorkOS Client ID (defaults to WORKOS_CLIENT_ID env var) */
+  clientId?: string;
+  /**
+   * Organization ID to scope FGA checks to.
+   * When a user has multiple organization memberships, this determines
+   * which membership to use for authorization checks.
+   * If not provided, uses the first membership found on the user object.
+   */
+  organizationId?: string;
+  /**
+   * Map Mastra resource types to WorkOS FGA resource types.
+   * Keys are Mastra resource types (e.g., 'agent', 'workflow', 'memory').
+   */
+  resourceMapping?: Record<string, FGAResourceMappingEntry>;
+  /**
+   * Map Mastra permission strings to WorkOS permission slugs.
+   * Keys are Mastra permissions (e.g., 'agents:execute'), values are WorkOS permission slugs.
+   */
+  permissionMapping?: Record<string, string>;
+}
+
+// ============================================================================
 // Directory Sync Types
 // ============================================================================
 

@@ -20,6 +20,7 @@ import { MastraAuthProvider } from '@mastra/core/server';
 import { AuthService, sessionEncryption } from '@workos/authkit-session';
 import type { AuthKitConfig } from '@workos/authkit-session';
 import { WorkOS } from '@workos-inc/node';
+import type { OrganizationMembership } from '@workos-inc/node';
 import type { HonoRequest } from 'hono';
 
 import { WebSessionStorage } from './session-storage.js';
@@ -113,7 +114,9 @@ export class MastraAuthWorkos
 
     // Create session storage and auth service
     const storage = new WebSessionStorage(this.config);
-    this.authService = new AuthService(this.config, storage, this.workos, sessionEncryption);
+    // Cast needed: @workos/authkit-session pins @workos-inc/node@8.0.0 but we use 8.8.0.
+    // The runtime API is compatible; only private HttpClient types differ.
+    this.authService = new AuthService(this.config, storage, this.workos as any, sessionEncryption);
 
     this.registerOptions(options as MastraAuthProviderOptions<WorkOSUser>);
 
@@ -145,11 +148,22 @@ export class MastraAuthWorkos
       const { auth } = await this.authService.withAuth(rawRequest);
 
       if (auth.user) {
+        // Fetch memberships for session-authenticated users (needed for FGA)
+        let memberships: OrganizationMembership[] | undefined;
+        try {
+          const membershipResult = await this.workos.userManagement.listOrganizationMemberships({
+            userId: auth.user.id,
+          });
+          memberships = membershipResult.data;
+        } catch {
+          // Ignore membership fetch errors — FGA will gracefully degrade
+        }
+
         return {
           ...mapWorkOSUserToEEUser(auth.user),
           workosId: auth.user.id,
           organizationId: auth.organizationId,
-          // Note: memberships not available from session, fetch if needed
+          memberships,
         };
       }
 

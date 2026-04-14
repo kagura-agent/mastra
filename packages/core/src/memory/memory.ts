@@ -564,6 +564,29 @@ https://mastra.ai/en/docs/memory/overview`,
   }
 
   /**
+   * Static helper to check FGA authorization for thread access.
+   * Can be called from HTTP handlers and agent execution paths.
+   */
+  static async checkThreadFGA(options: {
+    mastra?: Mastra;
+    user: { id: string };
+    threadId: string;
+    permission?: string;
+  }): Promise<void> {
+    const { mastra, user, threadId, permission = 'memory:read' } = options;
+    const fgaProvider = mastra?.getServer()?.fga;
+    if (!fgaProvider) return;
+
+    const { checkFGA } = await import('../auth/ee/fga-check');
+    await checkFGA({
+      fgaProvider,
+      user,
+      resource: { type: 'thread', id: threadId },
+      permission,
+    });
+  }
+
+  /**
    * Retrieves working memory for a specific thread
    * @param threadId - The unique identifier of the thread
    * @param resourceId - The unique identifier of the resource
