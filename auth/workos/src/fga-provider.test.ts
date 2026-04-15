@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@workos-inc/node', () => {
   const auth = {
     check: vi.fn(),
+    listResourcesForMembership: vi.fn(),
     createResource: vi.fn(),
     getResource: vi.fn(),
     listResources: vi.fn(),
@@ -199,16 +200,35 @@ describe('MastraFGAWorkos', () => {
   });
 
   describe('filterAccessible()', () => {
-    it('should filter resources based on authorization', async () => {
-      mockAuthorization.check
-        .mockResolvedValueOnce({ authorized: true })
-        .mockResolvedValueOnce({ authorized: false })
-        .mockResolvedValueOnce({ authorized: true });
+    it('should filter resources with a single listResourcesForMembership call when a parent mapping is configured', async () => {
+      mockAuthorization.listResourcesForMembership.mockResolvedValue({
+        data: [{ externalId: 'a-1' }, { externalId: 'a-3' }],
+        listMetadata: {},
+      });
 
       const resources = [{ id: 'a-1' }, { id: 'a-2' }, { id: 'a-3' }];
       const result = await fga.filterAccessible(testUser, resources, 'agent', 'agents:read');
 
       expect(result).toEqual([{ id: 'a-1' }, { id: 'a-3' }]);
+      expect(mockAuthorization.listResourcesForMembership).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationMembershipId: 'om-123',
+          permissionSlug: 'agents:read',
+          parentResourceExternalId: 'team-1',
+          parentResourceTypeSlug: 'team',
+        }),
+      );
+      expect(mockAuthorization.check).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to per-resource checks when no parent mapping is configured', async () => {
+      mockAuthorization.check.mockResolvedValueOnce({ authorized: true }).mockResolvedValueOnce({ authorized: false });
+
+      const resources = [{ id: 't-1' }, { id: 't-2' }];
+      const result = await fga.filterAccessible(testUser, resources, 'tool', 'tools:read');
+
+      expect(result).toEqual([{ id: 't-1' }]);
+      expect(mockAuthorization.listResourcesForMembership).not.toHaveBeenCalled();
     });
 
     it('should return empty array when no membership', async () => {

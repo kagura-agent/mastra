@@ -22,6 +22,7 @@ import type { AuthKitConfig } from '@workos/authkit-session';
 import { WorkOS } from '@workos-inc/node';
 import type { OrganizationMembership } from '@workos-inc/node';
 import type { HonoRequest } from 'hono';
+import { LRUCache } from 'lru-cache';
 
 import { WebSessionStorage } from './session-storage.js';
 import type { WorkOSUser, MastraAuthWorkosOptions } from './types.js';
@@ -32,6 +33,8 @@ import { mapWorkOSUserToEEUser } from './types.js';
  * Generated once per process to ensure consistency during dev.
  */
 const DEV_COOKIE_PASSWORD = crypto.randomUUID() + crypto.randomUUID(); // 72 chars
+const MEMBERSHIP_CACHE_TTL_MS = 60 * 1000;
+const MEMBERSHIP_CACHE_MAX_SIZE = 1000;
 
 /**
  * Mastra authentication provider for WorkOS.
@@ -62,6 +65,7 @@ export class MastraAuthWorkos
   protected authService: AuthService<Request, Response>;
   protected config: AuthKitConfig;
   protected fetchMemberships: boolean;
+  protected membershipCache: LRUCache<string, Promise<OrganizationMembership[]>>;
 
   constructor(options?: MastraAuthWorkosOptions) {
     super({ name: options?.name ?? 'workos' });
@@ -97,6 +101,10 @@ export class MastraAuthWorkos
     this.redirectUri = redirectUri;
     this.ssoConfig = options?.sso;
     this.fetchMemberships = options?.fetchMemberships ?? false;
+    this.membershipCache = new LRUCache<string, Promise<OrganizationMembership[]>>({
+      max: MEMBERSHIP_CACHE_MAX_SIZE,
+      ttl: MEMBERSHIP_CACHE_TTL_MS,
+    });
 
     // Create WorkOS client
     this.workos = new WorkOS(apiKey, { clientId });
@@ -156,10 +164,7 @@ export class MastraAuthWorkos
         let memberships: OrganizationMembership[] | undefined;
         if (this.fetchMemberships) {
           try {
-            const membershipResult = await this.workos.userManagement.listOrganizationMemberships({
-              userId: auth.user.id,
-            });
-            memberships = membershipResult.data;
+            memberships = await this.getMemberships(auth.user.id);
           } catch {
             // Ignore membership fetch errors — FGA will gracefully degrade
           }
@@ -183,15 +188,13 @@ export class MastraAuthWorkos
 
           // Fetch memberships only when FGA is configured (fetchMemberships: true).
           if (this.fetchMemberships) {
-            const memberships = await this.workos.userManagement.listOrganizationMemberships({
-              userId: user.id,
-            });
+            const memberships = await this.getMemberships(user.id);
 
             return {
               ...mapWorkOSUserToEEUser(user),
               workosId: user.id,
-              organizationId: memberships.data[0]?.organizationId,
-              memberships: memberships.data,
+              organizationId: memberships[0]?.organizationId,
+              memberships,
             };
           }
 
@@ -234,12 +237,11 @@ export class MastraAuthWorkos
       // The fallback fetch is skipped when fetchMemberships is false (FGA not configured)
       // to avoid an extra network call on every authenticated request.
       let organizationId = auth.organizationId;
-      if (!organizationId && this.fetchMemberships) {
+      let memberships: OrganizationMembership[] | undefined;
+      if (this.fetchMemberships) {
         try {
-          const memberships = await this.workos.userManagement.listOrganizationMemberships({
-            userId: auth.user.id,
-          });
-          organizationId = memberships.data[0]?.organizationId;
+          memberships = await this.getMemberships(auth.user.id);
+          organizationId ??= memberships[0]?.organizationId;
         } catch {
           // Ignore membership fetch errors
         }
@@ -250,6 +252,7 @@ export class MastraAuthWorkos
         ...mapWorkOSUserToEEUser(auth.user),
         workosId: auth.user.id,
         organizationId,
+        memberships,
       };
 
       // If session was refreshed, attach to user object for caller to save
@@ -283,6 +286,26 @@ export class MastraAuthWorkos
    */
   getUserProfileUrl(user: EEUser): string {
     return `/profile/${user.id}`;
+  }
+
+  private async getMemberships(userId: string): Promise<OrganizationMembership[]> {
+    const cached = this.membershipCache.get(userId);
+    if (cached) {
+      return cached;
+    }
+
+    const membershipsPromise = this.workos.userManagement
+      .listOrganizationMemberships({
+        userId,
+      })
+      .then(result => result.data)
+      .catch(error => {
+        this.membershipCache.delete(userId);
+        throw error;
+      });
+
+    this.membershipCache.set(userId, membershipsPromise);
+    return membershipsPromise;
   }
 
   // ============================================================================

@@ -551,6 +551,37 @@ describe('Memory Handlers', () => {
       expect(result).toEqual(createdThread);
       expect(spy).toHaveBeenCalledWith({ threadId: 'test-thread' });
     });
+
+    it('should deny thread reads when FGA denies access', async () => {
+      await mockMemory.createThread({ threadId: 'fga-thread', resourceId: 'test-resource' });
+
+      const mastra = new Mastra({
+        logger: false,
+        agents: {
+          'test-agent': mockAgent,
+        },
+      });
+      const require = vi.fn().mockRejectedValue(Object.assign(new Error('FGA denied'), { status: 403 }));
+      vi.spyOn(mastra, 'getServer').mockReturnValue({ fga: { require } } as any);
+
+      const ctx = createTestContextWithReservedKeys({ mastra });
+      ctx.requestContext.set('user', { id: 'user-1' });
+
+      await expect(
+        GET_THREAD_BY_ID_ROUTE.handler({
+          ...ctx,
+          threadId: 'fga-thread',
+          agentId: 'test-agent',
+        }),
+      ).rejects.toMatchObject({ status: 403, message: 'FGA denied' });
+      expect(require).toHaveBeenCalledWith(
+        { id: 'user-1' },
+        {
+          resource: { type: 'thread', id: 'fga-thread' },
+          permission: 'memory:read',
+        },
+      );
+    });
   });
 
   describe('saveMessagesHandler', () => {
@@ -638,6 +669,47 @@ describe('Memory Handlers', () => {
       });
       expect(result).toBeDefined();
       expect(spy).toHaveBeenCalled();
+    });
+
+    it('should deny message writes when FGA denies access to the target thread', async () => {
+      await mockMemory.createThread({ threadId: 'locked-thread', resourceId: 'test-resource' });
+
+      const mastra = new Mastra({
+        logger: false,
+        agents: {
+          'test-agent': mockAgent,
+        },
+      });
+      const require = vi.fn().mockRejectedValue(Object.assign(new Error('FGA denied'), { status: 403 }));
+      vi.spyOn(mastra, 'getServer').mockReturnValue({ fga: { require } } as any);
+
+      const ctx = createTestContextWithReservedKeys({ mastra });
+      ctx.requestContext.set('user', { id: 'user-1' });
+
+      await expect(
+        SAVE_MESSAGES_ROUTE.handler({
+          ...ctx,
+          agentId: 'test-agent',
+          messages: [
+            {
+              id: 'msg-1',
+              content: 'blocked',
+              role: 'user',
+              createdAt: new Date(),
+              threadId: 'locked-thread',
+              type: 'text',
+              resourceId: 'test-resource',
+            },
+          ] as MastraDBMessage[],
+        }),
+      ).rejects.toMatchObject({ status: 403, message: 'FGA denied' });
+      expect(require).toHaveBeenCalledWith(
+        { id: 'user-1' },
+        {
+          resource: { type: 'thread', id: 'locked-thread' },
+          permission: 'memory:write',
+        },
+      );
     });
 
     it('should accept, save, and retrieve both v1 and v2 format messages', async () => {
@@ -2090,7 +2162,7 @@ describe('Memory Handlers', () => {
           }),
         ).rejects.toThrow(
           new HTTPException(403, {
-            message: 'Access denied: message belongs to a thread owned by a different resource',
+            message: 'Access denied: thread belongs to a different resource',
           }),
         );
       });

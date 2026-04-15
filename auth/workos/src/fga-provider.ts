@@ -136,18 +136,12 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
   /**
    * Filter resources to only those the user has permission to access.
    *
-   * Issues one `check()` call per resource in parallel. This is an N+1 pattern
-   * because the WorkOS Authorization SDK (v8.x) does not expose a batch-check
-   * endpoint — `authorization.check()` accepts a single check object and there
-   * is no `checkBatch()` method.
+   * Uses WorkOS `listResourcesForMembership()` when the resource mapping can
+   * resolve a parent resource from user context. This avoids one check per
+   * resource for list endpoints like agents/workflows/tools.
    *
-   * `listResourcesForMembership()` exists in the SDK but requires a
-   * `parentResourceId` or `parentResourceExternalId`, making it unsuitable as a
-   * general-purpose batch alternative here.
-   *
-   * TODO: When WorkOS adds a batch authorization-check API, replace the
-   * `Promise.all` below with a single batched call to reduce latency and
-   * API quota consumption proportionally.
+   * Falls back to per-resource `check()` calls when no parent resource can be
+   * resolved from the configured mapping.
    */
   async filterAccessible<T extends { id: string }>(
     user: WorkOSUser,
@@ -160,7 +154,19 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
     const membershipId = this.resolveOrganizationMembershipId(user);
     if (!membershipId) return [];
 
-    // N individual checks run concurrently — see method JSDoc for context.
+    const permissionSlug = this.resolvePermission(permission);
+    const parentResource = this.resolveParentResource(user, resourceType);
+    if (parentResource) {
+      const accessibleIds = await this.listAccessibleResourceExternalIds({
+        organizationMembershipId: membershipId,
+        permissionSlug,
+        parentResourceExternalId: parentResource.externalId,
+        parentResourceTypeSlug: parentResource.typeSlug,
+      });
+
+      return resources.filter(resource => accessibleIds.has(resource.id));
+    }
+
     const checks = await Promise.all(
       resources.map(async resource => {
         const authorized = await this.check(user, {
@@ -357,6 +363,25 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
   }
 
   /**
+   * Resolve the parent resource context needed for WorkOS resource discovery.
+   */
+  private resolveParentResource(
+    user: WorkOSUser,
+    resourceType: string,
+  ): { externalId: string; typeSlug: string } | undefined {
+    const mapping = this.resourceMapping[resourceType];
+    const externalId = mapping?.deriveId?.({ user });
+    if (!mapping?.fgaResourceType || !externalId) {
+      return undefined;
+    }
+
+    return {
+      externalId,
+      typeSlug: mapping.fgaResourceType,
+    };
+  }
+
+  /**
    * Resolve the FGA resource ID using resourceMapping's deriveId function.
    * Falls back to the original resource ID if no mapping is found.
    */
@@ -366,6 +391,41 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
       return mapping.deriveId({ user });
     }
     return resourceId;
+  }
+
+  /**
+   * List accessible child resources for a membership, following pagination.
+   */
+  private async listAccessibleResourceExternalIds(params: {
+    organizationMembershipId: string;
+    permissionSlug: string;
+    parentResourceExternalId: string;
+    parentResourceTypeSlug: string;
+  }): Promise<Set<string>> {
+    const accessibleIds = new Set<string>();
+    let after: string | undefined;
+
+    do {
+      const result: any = await this.workos.authorization.listResourcesForMembership({
+        organizationMembershipId: params.organizationMembershipId,
+        permissionSlug: params.permissionSlug,
+        parentResourceExternalId: params.parentResourceExternalId,
+        parentResourceTypeSlug: params.parentResourceTypeSlug,
+        ...(after ? { after } : {}),
+        limit: 100,
+        order: 'asc',
+      });
+
+      for (const resource of result.data ?? []) {
+        if (typeof resource?.externalId === 'string') {
+          accessibleIds.add(resource.externalId);
+        }
+      }
+
+      after = result.listMetadata?.after ?? undefined;
+    } while (after);
+
+    return accessibleIds;
   }
 
   /**
