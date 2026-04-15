@@ -1,6 +1,6 @@
 import type { IRBACProvider, EEUser } from '@mastra/core/auth/ee';
 import type { Mastra } from '@mastra/core/mastra';
-import type { MastraAuthConfig } from '@mastra/core/server';
+import type { ApiRoute, MastraAuthConfig } from '@mastra/core/server';
 import type { HonoRequest } from 'hono';
 
 import { MASTRA_RESOURCE_ID_KEY } from '../constants';
@@ -55,6 +55,39 @@ export const isProtectedCustomRoute = (
   }
 
   return false; // Not in config = not a protected custom route
+};
+
+/**
+ * Find a matching custom API route for the given path and method.
+ * Returns the matched route and any extracted path parameters.
+ */
+export const findMatchingCustomRoute = (
+  path: string,
+  method: string,
+  apiRoutes?: ApiRoute[],
+): { route: ApiRoute; params: Record<string, string> } | undefined => {
+  if (!apiRoutes) return undefined;
+
+  for (const route of apiRoutes) {
+    if (route.method !== method && route.method !== 'ALL') continue;
+
+    const { keys, pattern: regex } = parse(route.path);
+    const match = regex.exec(path);
+    if (!match) continue;
+
+    const params: Record<string, string> = {};
+    if (keys && keys.length > 0) {
+      for (let i = 0; i < keys.length; i++) {
+        if (match[i + 1] !== undefined) {
+          params[keys[i]!] = match[i + 1]!;
+        }
+      }
+    }
+
+    return { route, params };
+  }
+
+  return undefined;
 };
 
 /**
