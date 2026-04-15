@@ -1,6 +1,6 @@
 # FGA Implementation Status
 
-*Updated April 14, 2026*
+_Updated April 14, 2026_
 
 ---
 
@@ -10,31 +10,31 @@ The `feat/fga` branch adds Fine-Grained Authorization (FGA) to Mastra using the 
 
 ### What's built
 
-| Layer | Status | Files |
-|-------|--------|-------|
-| `IFGAProvider` interface (read-only checks) | Done | `packages/core/src/auth/ee/interfaces/fga.ts` |
-| `IFGAManager` interface (read + write ops) | Done | same file |
-| `checkFGA` enforcement utility | Done | `packages/core/src/auth/ee/fga-check.ts` |
-| `FGADeniedError` structured error | Done | same file |
-| `server.fga` config on `ServerConfig` | Done | `packages/core/src/server/types.ts` |
-| Capabilities endpoint reports `fga: boolean` | Done | `packages/core/src/auth/ee/capabilities.ts` |
-| Agent `generate()`/`stream()` enforcement | Done | `packages/core/src/agent/agent.ts` |
-| Workflow `execute()` enforcement | Done | `packages/core/src/workflows/workflow.ts` |
-| Tool execution enforcement | Done | `packages/core/src/loop/.../tool-call-step.ts` |
-| List endpoint filtering (agents, tools, workflows) | Done | `packages/server/src/server/handlers/` |
-| `MastraFGAWorkos` adapter | Done | `auth/workos/src/fga-provider.ts` |
-| FGA types + exports from `@mastra/auth-workos` | Done | `auth/workos/src/types.ts`, `auth/workos/src/index.ts` |
-| Tests (interfaces, check, capabilities, middleware, agent, workflow, tool, memory) | Done | Various `__tests__/` dirs |
-| Docs page | Done | `docs/src/content/en/docs/server/auth/fga.mdx` |
-| Changesets | Done | `.changeset/` |
+| Layer                                                                              | Status | Files                                                  |
+| ---------------------------------------------------------------------------------- | ------ | ------------------------------------------------------ |
+| `IFGAProvider` interface (read-only checks)                                        | Done   | `packages/core/src/auth/ee/interfaces/fga.ts`          |
+| `IFGAManager` interface (read + write ops)                                         | Done   | same file                                              |
+| `checkFGA` enforcement utility                                                     | Done   | `packages/core/src/auth/ee/fga-check.ts`               |
+| `FGADeniedError` structured error                                                  | Done   | same file                                              |
+| `server.fga` config on `ServerConfig`                                              | Done   | `packages/core/src/server/types.ts`                    |
+| Capabilities endpoint reports `fga: boolean`                                       | Done   | `packages/core/src/auth/ee/capabilities.ts`            |
+| Agent `generate()`/`stream()` enforcement                                          | Done   | `packages/core/src/agent/agent.ts`                     |
+| Workflow `execute()` enforcement                                                   | Done   | `packages/core/src/workflows/workflow.ts`              |
+| Tool execution enforcement                                                         | Done   | `packages/core/src/loop/.../tool-call-step.ts`         |
+| List endpoint filtering (agents, tools, workflows)                                 | Done   | `packages/server/src/server/handlers/`                 |
+| `MastraFGAWorkos` adapter                                                          | Done   | `auth/workos/src/fga-provider.ts`                      |
+| FGA types + exports from `@mastra/auth-workos`                                     | Done   | `auth/workos/src/types.ts`, `auth/workos/src/index.ts` |
+| Tests (interfaces, check, capabilities, middleware, agent, workflow, tool, memory) | Done   | Various `__tests__/` dirs                              |
+| Docs page                                                                          | Done   | `docs/src/content/en/docs/server/auth/fga.mdx`         |
+| Changesets                                                                         | Done   | `.changeset/`                                          |
 
 ---
 
 ## Quick Example
 
 ```typescript
-import { Mastra } from "@mastra/core/mastra";
-import { MastraAuthWorkos, MastraFGAWorkos } from "@mastra/auth-workos";
+import { Mastra } from '@mastra/core/mastra';
+import { MastraAuthWorkos, MastraFGAWorkos } from '@mastra/auth-workos';
 
 const mastra = new Mastra({
   server: {
@@ -42,30 +42,30 @@ const mastra = new Mastra({
       /* SSO + session config */
     }),
     fga: new MastraFGAWorkos({
-      organizationId: "org_abc123",
+      organizationId: 'org_abc123',
 
       // Map Mastra resource types to WorkOS FGA resource types
       resourceMapping: {
         agent: {
-          fgaResourceType: "team",
-          deriveId: (ctx) => ctx.user.teamId,
+          fgaResourceType: 'team',
+          deriveId: ctx => ctx.user.teamId,
         },
         workflow: {
-          fgaResourceType: "team",
-          deriveId: (ctx) => ctx.user.teamId,
+          fgaResourceType: 'team',
+          deriveId: ctx => ctx.user.teamId,
         },
         memory: {
-          fgaResourceType: "user",
-          deriveId: (ctx) => ctx.user.userId,
+          fgaResourceType: 'user',
+          deriveId: ctx => ctx.user.userId,
         },
       },
 
       // Map Mastra permissions to WorkOS permission slugs
       permissionMapping: {
-        "agents:execute": "manage-workflows",
-        "workflows:execute": "manage-workflows",
-        "memory:read": "read",
-        "memory:write": "update",
+        'agents:execute': 'manage-workflows',
+        'workflows:execute': 'manage-workflows',
+        'memory:read': 'read',
+        'memory:write': 'update',
       },
     }),
   },
@@ -76,6 +76,7 @@ const mastra = new Mastra({
 ```
 
 When FGA is configured, calling `agent.generate()` automatically checks:
+
 ```
 fga.require(user, { resource: { type: 'agent', id: 'chef-agent' }, permission: 'agents:execute' })
 ```
@@ -96,9 +97,7 @@ The WorkOS adapter checks each resource one at a time:
 
 ```typescript
 // Current: N network calls
-const checks = await Promise.all(
-  resources.map((r) => this.check(user, { resource: { type, id: r.id }, permission }))
-);
+const checks = await Promise.all(resources.map(r => this.check(user, { resource: { type, id: r.id }, permission })));
 ```
 
 The WorkOS Authorization SDK has `listResourcesForMembership()` which returns all accessible resources in a single call. This should be used instead of N individual `check()` calls.
@@ -167,25 +166,25 @@ No remaining work. `IFGAProvider` and `IFGAManager` are defined, exported, and w
 
 ### Phase 2: Enforcement Points — ~70% complete
 
-| Enforcement Point | Plan | Current | Remaining Work |
-|---|---|---|---|
-| Route middleware | FGA check in request pipeline | Dead code (`checkRouteFGA` not called) | Wire into middleware or remove |
-| Agent execution | Before `generate()`/`stream()` | Done | — |
-| Tool execution | Before `tool.execute()` | Done | — |
-| Memory/thread access | Before read/write | Static helper exists, never called | Call `checkThreadFGA` from memory methods and/or HTTP handlers |
-| Workflow execution | Before `workflow.execute()` | Done | — |
-| MCP tools | Same as tool execution | Not started | Add FGA check in MCP tool execution path |
-| Resource listing | `filterAccessible()` on list endpoints | Done (agents, tools, workflows) | Add for threads/memory listing |
+| Enforcement Point    | Plan                                   | Current                                | Remaining Work                                                 |
+| -------------------- | -------------------------------------- | -------------------------------------- | -------------------------------------------------------------- |
+| Route middleware     | FGA check in request pipeline          | Dead code (`checkRouteFGA` not called) | Wire into middleware or remove                                 |
+| Agent execution      | Before `generate()`/`stream()`         | Done                                   | —                                                              |
+| Tool execution       | Before `tool.execute()`                | Done                                   | —                                                              |
+| Memory/thread access | Before read/write                      | Static helper exists, never called     | Call `checkThreadFGA` from memory methods and/or HTTP handlers |
+| Workflow execution   | Before `workflow.execute()`            | Done                                   | —                                                              |
+| MCP tools            | Same as tool execution                 | Not started                            | Add FGA check in MCP tool execution path                       |
+| Resource listing     | `filterAccessible()` on list endpoints | Done (agents, tools, workflows)        | Add for threads/memory listing                                 |
 
 ### Phase 3: WorkOS FGA Adapter — ~85% complete
 
-| Item | Status | Remaining |
-|---|---|---|
-| `MastraFGAWorkos` class | Done | — |
-| `resourceMapping` + `permissionMapping` | Done | — |
-| Uses `workos.authorization.*` (current API) | Done | — |
-| `filterAccessible` with batch/list API | Not done | Switch to `listResourcesForMembership()` |
-| Machine-to-machine / service account tokens | Not done | Implement Ryan's custom JWT + service account pattern |
+| Item                                                      | Status   | Remaining                                                 |
+| --------------------------------------------------------- | -------- | --------------------------------------------------------- |
+| `MastraFGAWorkos` class                                   | Done     | —                                                         |
+| `resourceMapping` + `permissionMapping`                   | Done     | —                                                         |
+| Uses `workos.authorization.*` (current API)               | Done     | —                                                         |
+| `filterAccessible` with batch/list API                    | Not done | Switch to `listResourcesForMembership()`                  |
+| Machine-to-machine / service account tokens               | Not done | Implement Ryan's custom JWT + service account pattern     |
 | Performance (caching, avoid unnecessary membership fetch) | Not done | Gate membership fetch behind FGA config; consider caching |
 
 ### Phase 4: OpenFGA / Generic Adapter — Not started
@@ -195,18 +194,19 @@ The plan called for an OpenFGA adapter (`@mastra/fga-openfga`) for OSS users who
 ### Phase 5: Studio Integration — Not started
 
 The plan called for wiring FGA into Studio Auth so deployed Studios respect fine-grained permissions. This means:
+
 - Studio's `usePermissions()` hook needs FGA awareness
 - Studio API routes need the same enforcement middleware
 
 ### Summary
 
-| Phase | Completion | Blocking issues |
-|---|---|---|
-| 1. Core Interfaces | 100% | — |
-| 2. Enforcement Points | ~70% | Memory enforcement not wired, MCP not started, route middleware dead code |
-| 3. WorkOS Adapter | ~85% | N+1 filterAccessible, no service accounts, membership fetch perf |
-| 4. OpenFGA Adapter | 0% | Additive, not blocking |
-| 5. Studio Integration | 0% | Depends on Phase 2 completion |
+| Phase                 | Completion | Blocking issues                                                           |
+| --------------------- | ---------- | ------------------------------------------------------------------------- |
+| 1. Core Interfaces    | 100%       | —                                                                         |
+| 2. Enforcement Points | ~70%       | Memory enforcement not wired, MCP not started, route middleware dead code |
+| 3. WorkOS Adapter     | ~85%       | N+1 filterAccessible, no service accounts, membership fetch perf          |
+| 4. OpenFGA Adapter    | 0%         | Additive, not blocking                                                    |
+| 5. Studio Integration | 0%         | Depends on Phase 2 completion                                             |
 
 ### Critical path to ship
 

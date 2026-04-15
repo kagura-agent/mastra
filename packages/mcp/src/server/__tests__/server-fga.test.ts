@@ -138,9 +138,7 @@ describe('MCP Server FGA checks', () => {
 
     const mockFGAProvider = {
       check: vi.fn().mockResolvedValue(false),
-      require: vi
-        .fn()
-        .mockRejectedValue(Object.assign(new Error('denied'), { name: 'FGADeniedError', status: 403 })),
+      require: vi.fn().mockRejectedValue(Object.assign(new Error('denied'), { name: 'FGADeniedError', status: 403 })),
       filterAccessible: vi.fn(),
     };
 
@@ -149,9 +147,7 @@ describe('MCP Server FGA checks', () => {
 
     const requestContext = createRequestContext({ id: 'user-1' });
 
-    await expect(
-      mcpServer.executeTool('test-tool', { input: 'hello' }, { requestContext }),
-    ).rejects.toThrow('denied');
+    await expect(mcpServer.executeTool('test-tool', { input: 'hello' }, { requestContext })).rejects.toThrow('denied');
     expect(execute).not.toHaveBeenCalled();
     expect(mockFGAProvider.require).toHaveBeenCalledWith(
       { id: 'user-1' },

@@ -516,10 +516,7 @@ export class MastraServer extends MastraServerBase<HonoApp, HonoRequest, Context
           ...params.queryParams,
         });
         if (fgaError) {
-          return c.json(
-            { error: fgaError.error, message: fgaError.message },
-            fgaError.status as any,
-          );
+          return c.json({ error: fgaError.error, message: fgaError.message }, fgaError.status as any);
         }
 
         try {
@@ -633,10 +630,7 @@ export class MastraServer extends MastraServerBase<HonoApp, HonoRequest, Context
           ...Object.fromEntries(new URL(c.req.url).searchParams.entries()),
         });
         if (fgaError) {
-          return c.json(
-            { error: fgaError.error, message: fgaError.message },
-            fgaError.status as any,
-          );
+          return c.json({ error: fgaError.error, message: fgaError.message }, fgaError.status as any);
         }
 
         return next();

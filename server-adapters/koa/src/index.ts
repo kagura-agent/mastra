@@ -758,7 +758,11 @@ export class MastraServer extends MastraServerBase<Koa, Context, Context> {
       const method = String(ctx.method || 'GET');
 
       if (isProtectedCustomRoute(path, method, this.customRouteAuthConfig)) {
-        const matchedRoute = findMatchingCustomRoute(path, method, this.customApiRoutes ?? this.mastra.getServer()?.apiRoutes);
+        const matchedRoute = findMatchingCustomRoute(
+          path,
+          method,
+          this.customApiRoutes ?? this.mastra.getServer()?.apiRoutes,
+        );
         const serverRoute: ServerRoute = {
           method: (matchedRoute?.route.method ?? method) as any,
           path: matchedRoute?.route.path ?? path,
