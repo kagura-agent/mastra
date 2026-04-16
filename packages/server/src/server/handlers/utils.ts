@@ -123,14 +123,14 @@ export async function enforceThreadAccess({
 }): Promise<void> {
   await validateThreadOwnership(thread, effectiveResourceId);
 
-  const user = requestContext?.get('user') as { id?: string } | undefined;
-  if (!user?.id) {
+  const user = requestContext?.get('user');
+  if (!user || typeof user !== 'object' || typeof (user as { id?: unknown }).id !== 'string') {
     return;
   }
 
   await MastraMemory.checkThreadFGA({
     mastra,
-    user: { id: user.id },
+    user: user as { id: string; [key: string]: unknown },
     threadId,
     permission,
   });

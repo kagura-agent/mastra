@@ -173,6 +173,28 @@ describe('MastraFGAWorkos', () => {
         }),
       );
     });
+
+    it('should deny when configured organizationId does not match any membership', async () => {
+      const scopedFga = new MastraFGAWorkos({
+        apiKey: 'sk_test_123',
+        clientId: 'client_test_123',
+        organizationId: 'org-expected',
+      });
+
+      const result = await scopedFga.check(
+        {
+          id: 'user-1',
+          memberships: [{ id: 'om-other', organizationId: 'org-other' }],
+        },
+        {
+          resource: { type: 'agent', id: 'agent-1' },
+          permission: 'agents:execute',
+        },
+      );
+
+      expect(result).toBe(false);
+      expect(mockAuthorization.check).not.toHaveBeenCalled();
+    });
   });
 
   describe('require()', () => {

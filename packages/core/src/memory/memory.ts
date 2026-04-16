@@ -569,7 +569,7 @@ https://mastra.ai/en/docs/memory/overview`,
    */
   static async checkThreadFGA(options: {
     mastra?: Mastra;
-    user: { id: string };
+    user: { id: string; [key: string]: unknown };
     threadId: string;
     permission?: string;
   }): Promise<void> {

@@ -348,6 +348,13 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
     if (this.organizationId) {
       const match = user.memberships.find(m => m.organizationId === this.organizationId);
       if (match) return match.id;
+
+      console.warn(
+        '[MastraFGAWorkos] User %s does not belong to configured organization %s.',
+        user?.id ?? 'unknown',
+        this.organizationId,
+      );
+      return undefined;
     }
 
     // Fall back to first membership

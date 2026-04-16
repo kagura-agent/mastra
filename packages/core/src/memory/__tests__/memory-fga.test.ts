@@ -50,18 +50,23 @@ describe('Memory FGA checks', () => {
     it('should call FGA provider require with correct params for thread read', async () => {
       const fgaProvider = createMockFGAProvider(true);
       const mastra = { getServer: () => ({ fga: fgaProvider }) };
+      const user = {
+        id: 'user-1',
+        organizationMembershipId: 'om-1',
+        memberships: [{ id: 'om-1', organizationId: 'org-1' }],
+      };
 
       await checkThreadFGA({
         mastra,
-        user: { id: 'user-1' },
+        user,
         threadId: 'thread-123',
         permission: 'memory:read',
       });
 
-      expect(fgaProvider.require).toHaveBeenCalledWith(
-        { id: 'user-1' },
-        { resource: { type: 'thread', id: 'thread-123' }, permission: 'memory:read' },
-      );
+      expect(fgaProvider.require).toHaveBeenCalledWith(user, {
+        resource: { type: 'thread', id: 'thread-123' },
+        permission: 'memory:read',
+      });
     });
 
     it('should call FGA provider require with correct params for thread write', async () => {

@@ -1,7 +1,7 @@
 import type { Agent, MastraDBMessage } from '@mastra/core/agent';
 import type { RequestContext } from '@mastra/core/di';
-import type { MastraMemory } from '@mastra/core/memory';
-import type { MastraStorage, MemoryStorage } from '@mastra/core/storage';
+import type { MastraMemory, StorageThreadType } from '@mastra/core/memory';
+import type { MastraStorage, MemoryStorage, StorageListThreadsOutput } from '@mastra/core/storage';
 import { generateEmptyFromSchema } from '@mastra/core/utils';
 import { HTTPException } from '../http-exception';
 import {
@@ -79,6 +79,67 @@ interface SearchResult {
   context?: {
     before?: SearchResult[];
     after?: SearchResult[];
+  };
+}
+
+function hasFGAUser(requestContext?: RequestContext): requestContext is RequestContext {
+  const user = requestContext?.get('user');
+  return !!user && typeof user === 'object';
+}
+
+async function filterAccessibleThreads({
+  mastra,
+  requestContext,
+  threads,
+}: {
+  mastra: any;
+  requestContext?: RequestContext;
+  threads: StorageThreadType[];
+}): Promise<StorageThreadType[]> {
+  const fgaProvider = mastra.getServer?.()?.fga;
+  if (!fgaProvider || !hasFGAUser(requestContext) || threads.length === 0) {
+    return threads;
+  }
+
+  return fgaProvider.filterAccessible(
+    requestContext.get('user') as { id: string; [key: string]: unknown },
+    threads,
+    'thread',
+    'memory:read',
+  );
+}
+
+function paginateThreads({
+  threads,
+  page,
+  perPage,
+}: {
+  threads: StorageThreadType[];
+  page?: number;
+  perPage?: number | false;
+}): StorageListThreadsOutput {
+  const effectivePage = page ?? 0;
+  const effectivePerPage: number | false = perPage ?? 100;
+
+  if (effectivePerPage === false) {
+    return {
+      threads,
+      page: effectivePage,
+      perPage: false,
+      total: threads.length,
+      hasMore: false,
+    };
+  }
+
+  const start = effectivePage * effectivePerPage;
+  const pagedThreads = threads.slice(start, start + effectivePerPage);
+
+  return {
+    threads: pagedThreads,
+    page: effectivePage,
+    perPage: effectivePerPage,
+    total: threads.length,
+    hasMore: start + pagedThreads.length < threads.length,
   };
 }
 
@@ -714,6 +775,34 @@ export const LIST_THREADS_ROUTE = createRoute({
       if (agent && isGateway) {
         const gwClient = getGatewayClient();
         if (gwClient) {
+          if (hasFGAUser(requestContext)) {
+            const initialResult = await gwClient.listThreads({
+              resourceId: effectiveResourceId,
+              limit: 1,
+              offset: 0,
+            });
+            const allThreads =
+              initialResult.total > 0
+                ? (
+                    await gwClient.listThreads({
+                      resourceId: effectiveResourceId,
+                      limit: initialResult.total,
+                      offset: 0,
+                    })
+                  ).threads.map(toLocalThread)
+                : [];
+            const accessibleThreads = await filterAccessibleThreads({
+              mastra,
+              requestContext,
+              threads: allThreads,
+            });
+            return paginateThreads({
+              threads: accessibleThreads,
+              page,
+              perPage,
+            });
+          }
+
           const effectivePage = page ?? 0;
           const effectivePerPage = perPage ?? 100;
           const offset = effectivePage * effectivePerPage;
@@ -746,13 +835,34 @@ export const LIST_THREADS_ROUTE = createRoute({
       const memory = await getMemoryFromContext({ mastra, agentId, requestContext, allowMissingAgent: true });
 
       if (memory) {
-        const result = await memory.listThreads({
-          filter,
+        const result = await memory.listThreads(
+          hasFGAUser(requestContext)
+            ? {
+                filter,
+                perPage: false,
+                orderBy,
+              }
+            : {
+                filter,
+                page,
+                perPage,
+                orderBy,
+              },
+        );
+        if (!hasFGAUser(requestContext)) {
+          return result;
+        }
+
+        const accessibleThreads = await filterAccessibleThreads({
+          mastra,
+          requestContext,
+          threads: result.threads,
+        });
+        return paginateThreads({
+          threads: accessibleThreads,
           page,
           perPage,
-          orderBy,
         });
-        return result;
       }
 
       // Fallback to storage (covers stored agents whose memory can't be resolved)
@@ -760,13 +870,34 @@ export const LIST_THREADS_ROUTE = createRoute({
       if (storage) {
         const memoryStore = await storage.getStore('memory');
         if (memoryStore) {
-          const result = await memoryStore.listThreads({
-            filter,
+          const result = await memoryStore.listThreads(
+            hasFGAUser(requestContext)
+              ? {
+                  filter,
+                  perPage: false,
+                  orderBy,
+                }
+              : {
+                  filter,
+                  page,
+                  perPage,
+                  orderBy,
+                },
+          );
+          if (!hasFGAUser(requestContext)) {
+            return result;
+          }
+
+          const accessibleThreads = await filterAccessibleThreads({
+            mastra,
+            requestContext,
+            threads: result.threads,
+          });
+          return paginateThreads({
+            threads: accessibleThreads,
             page,
             perPage,
-            orderBy,
           });
-          return result;
         }
       }
 

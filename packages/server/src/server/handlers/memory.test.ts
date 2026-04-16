@@ -565,7 +565,12 @@ describe('Memory Handlers', () => {
       vi.spyOn(mastra, 'getServer').mockReturnValue({ fga: { require } } as any);
 
       const ctx = createTestContextWithReservedKeys({ mastra });
-      ctx.requestContext.set('user', { id: 'user-1' });
+      const user = {
+        id: 'user-1',
+        organizationMembershipId: 'om-1',
+        memberships: [{ id: 'om-1', organizationId: 'org-1' }],
+      };
+      ctx.requestContext.set('user', user);
 
       await expect(
         GET_THREAD_BY_ID_ROUTE.handler({
@@ -574,13 +579,10 @@ describe('Memory Handlers', () => {
           agentId: 'test-agent',
         }),
       ).rejects.toMatchObject({ status: 403, message: 'FGA denied' });
-      expect(require).toHaveBeenCalledWith(
-        { id: 'user-1' },
-        {
-          resource: { type: 'thread', id: 'fga-thread' },
-          permission: 'memory:read',
-        },
-      );
+      expect(require).toHaveBeenCalledWith(user, {
+        resource: { type: 'thread', id: 'fga-thread' },
+        permission: 'memory:read',
+      });
     });
   });
 
@@ -1607,6 +1609,48 @@ describe('Memory Handlers', () => {
         });
 
         expect(result.threads).toHaveLength(2);
+      });
+
+      it('should filter listed threads through FGA before returning them', async () => {
+        const mastra = new Mastra({
+          logger: false,
+          agents: { 'test-agent': mockAgent },
+        });
+
+        await mockMemory.createThread({ threadId: 'thread-a', resourceId: 'user-a', title: 'A' });
+        await mockMemory.createThread({ threadId: 'thread-b', resourceId: 'user-b', title: 'B' });
+        await mockMemory.createThread({ threadId: 'thread-c', resourceId: 'user-c', title: 'C' });
+
+        const filterAccessible = vi
+          .fn()
+          .mockImplementation(async (_user, threads: Array<{ id: string }>) =>
+            threads.filter(t => t.id !== 'thread-b'),
+          );
+        vi.spyOn(mastra, 'getServer').mockReturnValue({ fga: { filterAccessible } } as any);
+
+        const ctx = createTestContextWithReservedKeys({ mastra });
+        ctx.requestContext.set('user', { id: 'user-1' });
+
+        const result = await LIST_THREADS_ROUTE.handler({
+          ...ctx,
+          agentId: 'test-agent',
+          page: 0,
+          perPage: 10,
+        });
+
+        expect(result.threads.map(t => t.id)).toEqual(['thread-a', 'thread-c']);
+        expect(result.total).toBe(2);
+        expect(result.hasMore).toBe(false);
+        expect(filterAccessible).toHaveBeenCalledWith(
+          { id: 'user-1' },
+          expect.arrayContaining([
+            expect.objectContaining({ id: 'thread-a' }),
+            expect.objectContaining({ id: 'thread-b' }),
+            expect.objectContaining({ id: 'thread-c' }),
+          ]),
+          'thread',
+          'memory:read',
+        );
       });
     });
 
