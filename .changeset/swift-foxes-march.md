@@ -1,8 +1,5 @@
 ---
 '@mastra/auth-workos': minor
-'@mastra/server': patch
-'@mastra/core': patch
-'@mastra/mcp': patch
 ---
 
 Added `MastraFGAWorkos` provider for Fine-Grained Authorization using the WorkOS FGA (Warrant) API. Implements `IFGAManager` interface with support for:
