@@ -29,6 +29,7 @@ export type { ResourceIdentifier, ACLGrant, IACLProvider, IACLManager } from './
 
 // FGA
 export type {
+  FGACheckContext,
   FGACheckParams,
   FGAResource,
   FGACreateResourceParams,

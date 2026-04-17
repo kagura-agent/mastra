@@ -42,7 +42,7 @@ vi.mock('@mastra/core/auth/ee', () => ({
   },
 }));
 
-import { MastraFGAWorkos } from './fga-provider';
+import { MastraFGAWorkos, WorkOSFGAMembershipResolutionError } from './fga-provider';
 
 // Access the shared mock (set during vi.mock factory execution)
 const mockAuthorization = (globalThis as any).__mockAuthorization;
@@ -132,6 +132,36 @@ describe('MastraFGAWorkos', () => {
       );
     });
 
+    it('should pass the raw resource ID into deriveId and fall back when deriveId returns undefined', async () => {
+      mockAuthorization.check.mockResolvedValue({ authorized: true });
+      const deriveId = vi.fn().mockReturnValue(undefined);
+      const contextualFga = new MastraFGAWorkos({
+        apiKey: 'sk_test_123',
+        clientId: 'client_test_123',
+        resourceMapping: {
+          thread: { fgaResourceType: 'tenant-thread', deriveId },
+        },
+      });
+
+      await contextualFga.check(testUser, {
+        resource: { type: 'thread', id: 'thread-1' },
+        permission: 'memory:read',
+        context: { resourceId: 'tenant-a:thread-1' },
+      });
+
+      expect(deriveId).toHaveBeenCalledWith({
+        user: testUser,
+        resourceId: 'tenant-a:thread-1',
+        requestContext: undefined,
+      });
+      expect(mockAuthorization.check).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceExternalId: 'thread-1',
+          resourceTypeSlug: 'tenant-thread',
+        }),
+      );
+    });
+
     it('should fall back to unmapped permission when no mapping exists', async () => {
       mockAuthorization.check.mockResolvedValue({ authorized: true });
 
@@ -155,6 +185,17 @@ describe('MastraFGAWorkos', () => {
       });
 
       expect(result).toBe(false);
+      expect(mockAuthorization.check).not.toHaveBeenCalled();
+    });
+
+    it('should throw a typed membership resolution error from require when memberships were not loaded', async () => {
+      await expect(
+        fga.require({ id: 'user-1' } as any, {
+          resource: { type: 'agent', id: 'agent-1' },
+          permission: 'agents:execute',
+        }),
+      ).rejects.toBeInstanceOf(WorkOSFGAMembershipResolutionError);
+
       expect(mockAuthorization.check).not.toHaveBeenCalled();
     });
 
@@ -246,11 +287,63 @@ describe('MastraFGAWorkos', () => {
     it('should fall back to per-resource checks when no parent mapping is configured', async () => {
       mockAuthorization.check.mockResolvedValueOnce({ authorized: true }).mockResolvedValueOnce({ authorized: false });
 
-      const resources = [{ id: 't-1' }, { id: 't-2' }];
+      const resources = [
+        { id: 't-1', resourceId: 'tenant-a:thread-1' },
+        { id: 't-2', resourceId: 'tenant-a:thread-2' },
+      ];
       const result = await fga.filterAccessible(testUser, resources, 'tool', 'tools:read');
 
-      expect(result).toEqual([{ id: 't-1' }]);
+      expect(result).toEqual([{ id: 't-1', resourceId: 'tenant-a:thread-1' }]);
       expect(mockAuthorization.listResourcesForMembership).not.toHaveBeenCalled();
+      expect(mockAuthorization.check).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          resourceExternalId: 't-1',
+          resourceTypeSlug: 'tool',
+        }),
+      );
+    });
+
+    it('should pass thread resourceId context through per-resource filtering', async () => {
+      mockAuthorization.check.mockResolvedValueOnce({ authorized: true }).mockResolvedValueOnce({ authorized: false });
+      const deriveId = vi.fn(({ resourceId }: { resourceId?: string }) => resourceId);
+      const threadFga = new MastraFGAWorkos({
+        apiKey: 'sk_test_123',
+        clientId: 'client_test_123',
+        resourceMapping: {
+          thread: { fgaResourceType: 'tenant-thread', deriveId },
+        },
+      });
+
+      const resources = [
+        { id: 'thread-1', resourceId: 'tenant-a:thread-1' },
+        { id: 'thread-2', resourceId: 'tenant-a:thread-2' },
+      ];
+      const result = await threadFga.filterAccessible(testUser, resources, 'thread', 'memory:read');
+
+      expect(result).toEqual([{ id: 'thread-1', resourceId: 'tenant-a:thread-1' }]);
+      expect(deriveId).toHaveBeenNthCalledWith(1, {
+        user: testUser,
+        resourceId: undefined,
+        requestContext: undefined,
+      });
+      expect(deriveId).toHaveBeenNthCalledWith(2, {
+        user: testUser,
+        resourceId: 'tenant-a:thread-1',
+        requestContext: undefined,
+      });
+      expect(deriveId).toHaveBeenNthCalledWith(3, {
+        user: testUser,
+        resourceId: 'tenant-a:thread-2',
+        requestContext: undefined,
+      });
+      expect(mockAuthorization.check).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          resourceExternalId: 'tenant-a:thread-1',
+          resourceTypeSlug: 'tenant-thread',
+        }),
+      );
     });
 
     it('should return empty array when no membership', async () => {

@@ -12,6 +12,25 @@
 // Core Types
 // ──────────────────────────────────────────────────────────────
 
+import type { RequestContext } from '../../../di';
+
+/**
+ * Optional context for an authorization check.
+ */
+export interface FGACheckContext {
+  /**
+   * The owning application resource ID for the target resource.
+   * Useful when the authorization resource ID differs from the route-level ID,
+   * such as thread checks scoped by a thread's owning tenant/resource.
+   */
+  resourceId?: string;
+  /**
+   * Optional request context for providers that need additional request-scoped
+   * data to derive the authorization resource identifier.
+   */
+  requestContext?: RequestContext;
+}
+
 /**
  * Parameters for an authorization check.
  */
@@ -20,6 +39,8 @@ export interface FGACheckParams {
   resource: { type: string; id: string };
   /** The permission being checked (e.g., 'agents:execute', 'memory:read') */
   permission: string;
+  /** Optional provider-specific context for resource resolution */
+  context?: FGACheckContext;
 }
 
 /**

@@ -64,6 +64,16 @@ resourceMapping: {
 }
 ```
 
+`deriveId()` receives:
+
+- `user` — the authenticated user
+- `resourceId` — the owning Mastra resource ID when available (for example, a thread's `resourceId`)
+- `requestContext` — the current request context for advanced tenant resolution
+
+Return `undefined` from `deriveId()` to fall back to the original Mastra resource ID.
+
+For thread and memory checks, Mastra still passes the raw `threadId` as the resource being checked, but it also forwards the thread's owning `resourceId` into `deriveId()`. This lets you map thread permissions to composite tenant IDs such as `userId-teamId-orgId`.
+
 ### Permission mapping
 
 The `permissionMapping` translates Mastra's internal permission strings to your FGA provider's permission slugs:

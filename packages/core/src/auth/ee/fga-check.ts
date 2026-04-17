@@ -4,13 +4,14 @@
  * @license Mastra Enterprise License - see ee/LICENSE
  */
 
-import type { IFGAProvider } from './interfaces/fga';
+import type { FGACheckContext, IFGAProvider } from './interfaces/fga';
 
 export interface CheckFGAOptions {
   fgaProvider: IFGAProvider | undefined;
   user: any;
   resource: { type: string; id: string };
   permission: string;
+  context?: FGACheckContext;
 }
 
 /**
@@ -20,13 +21,13 @@ export interface CheckFGAOptions {
  * Delegates to fgaProvider.require() which throws FGADeniedError if denied.
  */
 export async function checkFGA(options: CheckFGAOptions): Promise<void> {
-  const { fgaProvider, user, resource, permission } = options;
+  const { fgaProvider, user, resource, permission, context } = options;
 
   if (!fgaProvider) {
     return;
   }
 
-  await fgaProvider.require(user, { resource, permission });
+  await fgaProvider.require(user, { resource, permission, context });
 }
 
 /**

@@ -26,9 +26,11 @@ async function checkThreadFGA(options: {
   mastra?: any;
   user: any;
   threadId: string;
+  resourceId?: string;
+  requestContext?: any;
   permission?: string;
 }): Promise<void> {
-  const { mastra, user, threadId, permission = 'memory:read' } = options;
+  const { mastra, user, threadId, resourceId, requestContext, permission = 'memory:read' } = options;
   const fgaProvider = mastra?.getServer()?.fga;
   if (!fgaProvider) return;
 
@@ -38,6 +40,13 @@ async function checkThreadFGA(options: {
     user,
     resource: { type: 'thread', id: threadId },
     permission,
+    context:
+      resourceId || requestContext
+        ? {
+            resourceId,
+            requestContext,
+          }
+        : undefined,
   });
 }
 
@@ -132,6 +141,32 @@ describe('Memory FGA checks', () => {
       expect(fgaProvider.require).toHaveBeenCalledWith(
         { id: 'user-1' },
         { resource: { type: 'thread', id: 'thread-789' }, permission: 'memory:delete' },
+      );
+    });
+
+    it('should forward thread resource context when available', async () => {
+      const fgaProvider = createMockFGAProvider(true);
+      const mastra = { getServer: () => ({ fga: fgaProvider }) };
+      const requestContext = { get: vi.fn() };
+
+      await checkThreadFGA({
+        mastra,
+        user: { id: 'user-1' },
+        threadId: 'thread-999',
+        resourceId: 'user-1:team-a:org-1',
+        requestContext,
+      });
+
+      expect(fgaProvider.require).toHaveBeenCalledWith(
+        { id: 'user-1' },
+        {
+          resource: { type: 'thread', id: 'thread-999' },
+          permission: 'memory:read',
+          context: {
+            resourceId: 'user-1:team-a:org-1',
+            requestContext,
+          },
+        },
       );
     });
   });

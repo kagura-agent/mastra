@@ -24,6 +24,20 @@ import { WorkOS } from '@workos-inc/node';
 
 import type { MastraFGAWorkosOptions, FGAResourceMappingEntry, WorkOSUser } from './types';
 
+export class WorkOSFGAMembershipResolutionError extends Error {
+  readonly status = 500;
+  readonly userId?: string;
+
+  constructor(user: WorkOSUser) {
+    super(
+      `[MastraFGAWorkos] Cannot resolve organization membership for user ${user?.id ?? 'unknown'}. ` +
+        'Ensure fetchMemberships is enabled on MastraAuthWorkos or provide organizationMembershipId on the user.',
+    );
+    this.name = 'WorkOSFGAMembershipResolutionError';
+    this.userId = user?.id;
+  }
+}
+
 /**
  * WorkOS FGA provider using the new Authorization API.
  *
@@ -96,29 +110,8 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
    * via `permissionMapping`, and delegates to `workos.authorization.check()`.
    */
   async check(user: WorkOSUser, params: FGACheckParams): Promise<boolean> {
-    const membershipId = this.resolveOrganizationMembershipId(user);
-    if (!membershipId) return false;
-
-    const permissionSlug = this.resolvePermission(params.permission);
-    const resourceId = this.resolveResourceId(user, params.resource.type, params.resource.id);
-
-    const checkOptions: any = {
-      organizationMembershipId: membershipId,
-      permissionSlug,
-    };
-
-    // Add resource identifier if available
-    if (resourceId) {
-      const mapping = this.resourceMapping[params.resource.type];
-      if (mapping) {
-        checkOptions.resourceExternalId = resourceId;
-        checkOptions.resourceTypeSlug = mapping.fgaResourceType;
-      } else {
-        checkOptions.resourceExternalId = params.resource.id;
-        checkOptions.resourceTypeSlug = params.resource.type;
-      }
-    }
-
+    const checkOptions = this.buildCheckOptions(user, params);
+    if (!checkOptions) return false;
     const result = await this.workos.authorization.check(checkOptions);
     return result.authorized;
   }
@@ -127,8 +120,13 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
    * Require that a user has permission, throwing FGADeniedError if not.
    */
   async require(user: WorkOSUser, params: FGACheckParams): Promise<void> {
-    const authorized = await this.check(user, params);
-    if (!authorized) {
+    const checkOptions = this.buildCheckOptions(user, params, { strictMembershipResolution: true });
+    if (!checkOptions) {
+      throw new FGADeniedError(user, params.resource, params.permission);
+    }
+
+    const result = await this.workos.authorization.check(checkOptions);
+    if (!result.authorized) {
       throw new FGADeniedError(user, params.resource, params.permission);
     }
   }
@@ -172,6 +170,10 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
         const authorized = await this.check(user, {
           resource: { type: resourceType, id: resource.id },
           permission,
+          context:
+            'resourceId' in resource && typeof resource.resourceId === 'string'
+              ? { resourceId: resource.resourceId }
+              : undefined,
         });
         return { resource, authorized };
       }),
@@ -333,7 +335,10 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
    * authorization checks to deny access. Enable `fetchMemberships: true`
    * on MastraAuthWorkos to populate the memberships field.
    */
-  private resolveOrganizationMembershipId(user: WorkOSUser): string | undefined {
+  private resolveOrganizationMembershipId(
+    user: WorkOSUser,
+    options?: { strictMembershipResolution?: boolean },
+  ): string | undefined {
     if (user?.organizationMembershipId) return user.organizationMembershipId;
     if (!user?.memberships?.length) {
       console.warn(
@@ -341,6 +346,9 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
           'Ensure fetchMemberships is enabled on MastraAuthWorkos when using FGA.',
         user?.id ?? 'unknown',
       );
+      if (options?.strictMembershipResolution) {
+        throw new WorkOSFGAMembershipResolutionError(user);
+      }
       return undefined;
     }
 
@@ -392,12 +400,51 @@ export class MastraFGAWorkos implements IFGAManager<WorkOSUser> {
    * Resolve the FGA resource ID using resourceMapping's deriveId function.
    * Falls back to the original resource ID if no mapping is found.
    */
-  private resolveResourceId(user: WorkOSUser, resourceType: string, resourceId: string): string | undefined {
+  private resolveResourceId(
+    user: WorkOSUser,
+    resourceType: string,
+    resourceId: string,
+    context?: FGACheckParams['context'],
+  ): string | undefined {
     const mapping = this.resourceMapping[resourceType];
-    if (mapping?.deriveId) {
-      return mapping.deriveId({ user });
+    const derivedId = mapping?.deriveId?.({
+      user,
+      resourceId: context?.resourceId ?? resourceId,
+      requestContext: context?.requestContext,
+    });
+    return derivedId ?? resourceId;
+  }
+
+  private buildCheckOptions(
+    user: WorkOSUser,
+    params: FGACheckParams,
+    options?: { strictMembershipResolution?: boolean },
+  ): any | null {
+    const membershipId = this.resolveOrganizationMembershipId(user, options);
+    if (!membershipId) return null;
+
+    const permissionSlug = this.resolvePermission(params.permission);
+    const resourceId = this.resolveResourceId(user, params.resource.type, params.resource.id, params.context);
+
+    const checkOptions: any = {
+      organizationMembershipId: membershipId,
+      permissionSlug,
+    };
+
+    if (!resourceId) {
+      return checkOptions;
     }
-    return resourceId;
+
+    const mapping = this.resourceMapping[params.resource.type];
+    if (mapping) {
+      checkOptions.resourceExternalId = resourceId;
+      checkOptions.resourceTypeSlug = mapping.fgaResourceType;
+    } else {
+      checkOptions.resourceExternalId = params.resource.id;
+      checkOptions.resourceTypeSlug = params.resource.type;
+    }
+
+    return checkOptions;
   }
 
   /**

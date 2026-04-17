@@ -571,9 +571,11 @@ https://mastra.ai/en/docs/memory/overview`,
     mastra?: Mastra;
     user: { id: string; [key: string]: unknown };
     threadId: string;
+    resourceId?: string;
+    requestContext?: RequestContext;
     permission?: string;
   }): Promise<void> {
-    const { mastra, user, threadId, permission = 'memory:read' } = options;
+    const { mastra, user, threadId, resourceId, requestContext, permission = 'memory:read' } = options;
     const fgaProvider = mastra?.getServer()?.fga;
     if (!fgaProvider) return;
 
@@ -583,6 +585,13 @@ https://mastra.ai/en/docs/memory/overview`,
       user,
       resource: { type: 'thread', id: threadId },
       permission,
+      context:
+        resourceId || requestContext
+          ? {
+              resourceId,
+              requestContext,
+            }
+          : undefined,
     });
   }
 

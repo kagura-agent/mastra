@@ -3,6 +3,7 @@
  */
 
 import type { EEUser, RoleMapping } from '@mastra/core/auth/ee';
+import type { RequestContext } from '@mastra/core/di';
 import type { User, OrganizationMembership } from '@workos-inc/node';
 
 // ============================================================================
@@ -173,8 +174,11 @@ export interface MastraRBACWorkosOptions {
 export interface FGAResourceMappingEntry {
   /** The FGA resource type slug in WorkOS */
   fgaResourceType: string;
-  /** Derive the FGA resource ID from user context */
-  deriveId?: (ctx: { user: any }) => string;
+  /**
+   * Derive the FGA resource ID from request/user context.
+   * Return `undefined` to fall back to the raw Mastra resource ID.
+   */
+  deriveId?: (ctx: { user: any; resourceId?: string; requestContext?: RequestContext }) => string | undefined;
 }
 
 /**

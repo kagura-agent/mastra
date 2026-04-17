@@ -582,6 +582,9 @@ describe('Memory Handlers', () => {
       expect(require).toHaveBeenCalledWith(user, {
         resource: { type: 'thread', id: 'fga-thread' },
         permission: 'memory:read',
+        context: expect.objectContaining({
+          resourceId: 'test-resource',
+        }),
       });
     });
   });
@@ -710,6 +713,9 @@ describe('Memory Handlers', () => {
         {
           resource: { type: 'thread', id: 'locked-thread' },
           permission: 'memory:write',
+          context: expect.objectContaining({
+            resourceId: 'test-resource',
+          }),
         },
       );
     });

@@ -73,6 +73,34 @@ describe('checkFGA', () => {
       { resource: { type: 'thread', id: 'thread-1' }, permission: 'memory:read' },
     );
   });
+
+  it('should forward optional authorization context to the provider', async () => {
+    const provider = createMockFGAProvider(true);
+    const requestContext = { get: vi.fn() };
+
+    await checkFGA({
+      fgaProvider: provider,
+      user: { id: 'user-2' },
+      resource: { type: 'thread', id: 'thread-1' },
+      permission: 'memory:read',
+      context: {
+        resourceId: 'user-2:team-a:org-1',
+        requestContext,
+      },
+    });
+
+    expect(provider.require).toHaveBeenCalledWith(
+      { id: 'user-2' },
+      {
+        resource: { type: 'thread', id: 'thread-1' },
+        permission: 'memory:read',
+        context: {
+          resourceId: 'user-2:team-a:org-1',
+          requestContext,
+        },
+      },
+    );
+  });
 });
 
 describe('FGADeniedError', () => {

@@ -132,6 +132,8 @@ export async function enforceThreadAccess({
     mastra,
     user: user as { id: string; [key: string]: unknown },
     threadId,
+    resourceId: thread?.resourceId ?? effectiveResourceId,
+    requestContext,
     permission,
   });
 }
