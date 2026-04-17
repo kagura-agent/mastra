@@ -4,7 +4,7 @@
 
 Added Fine-Grained Authorization (FGA) support for relationship-based, resource-level access control. FGA answers "can this user perform this action on this specific resource?" — enabling multi-tenant isolation and per-resource permissions.
 
-**New interfaces:** `IFGAProvider` (read-only checks) and `IFGAManager` (read + write operations) with types for warrants, resources, subjects, and queries.
+**New interfaces:** `IFGAProvider` (read-only checks) and `IFGAManager` (read + write operations) with types for access checks, resources, and role assignments.
 
 **Enforcement at all execution points:** FGA checks are automatically enforced before agent execution (`generate()`, `stream()`), tool execution, workflow execution, and memory thread access. When no FGA provider is configured, all checks are skipped (backward compatible).
 
