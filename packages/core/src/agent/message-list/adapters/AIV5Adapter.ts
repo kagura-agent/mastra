@@ -623,11 +623,19 @@ export class AIV5Adapter {
         );
 
         const updateMatchingCallInvocationResult = (toolResultPart: AIV5Type.ToolResultPart, matchingCall: any) => {
-          matchingCall.state = 'result';
-          matchingCall.result =
+          const unwrappedOutput =
             typeof toolResultPart.output === 'object' && toolResultPart.output && 'value' in toolResultPart.output
               ? toolResultPart.output.value
               : toolResultPart.output;
+
+          if (toolResultPart.isError === true) {
+            matchingCall.state = 'output-error';
+            matchingCall.errorText =
+              typeof unwrappedOutput === 'string' ? unwrappedOutput : JSON.stringify(unwrappedOutput);
+          } else {
+            matchingCall.state = 'result';
+            matchingCall.result = unwrappedOutput;
+          }
         };
 
         if (matchingCall) {
